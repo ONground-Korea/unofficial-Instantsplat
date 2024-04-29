@@ -1,0 +1,3 @@
+CUDA_VISIBLE_DEVICES=1 python train_noise.py -s /home/cvlab05/project/sda/mipnerf360/flowers --exp_name flowers_sfm_noise_0.01 --eval --resolution 8 --project_name gs_noise --noise 0.01 --port 7007
+CUDA_VISIBLE_DEVICES=1 python train_noise.py -s /home/cvlab05/project/sda/mipnerf360/flowers --exp_name flowers_sfm_noise_0.1 --eval --resolution 8 --project_name gs_noise --noise 0.1 --port 7007
+CUDA_VISIBLE_DEVICES=1 python train_noise.py -s /home/cvlab05/project/sda/mipnerf360/flowers --exp_name flowers_sfm_noise_1.0 --eval --resolution 8 --project_name gs_noise --noise 1.0 --port 7007
