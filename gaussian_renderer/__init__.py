@@ -78,7 +78,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
     
     if pose_rep == '9D':
-        current_pose = r6d2mat(camera_pose.unsqueeze(dim=0)).cuda()
+        current_pose = camera_pose
         projmatrix = viewpoint_camera.projection_matrix.cuda()
         proj_full_matrix = (current_pose.unsqueeze(0).bmm(projmatrix.unsqueeze(0))).squeeze(0)
     elif pose_rep == 'quaternion':

@@ -266,34 +266,10 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def runDust3r(image_path, cam_infos, device, args_dict):
-    # Run dust3r
-    ply_path = None
-    if args_dict is not None:
-        model_path = "./duster/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-        device = 'cuda'
-        batch_size = 1
-        schedule = 'cosine'
-        lr = 0.01
-        niter = 300
-        model = load_model(model_path, device)
-        image_path = image_path if args_dict["own_data"] else [img_path.image_path for img_path in cam_infos] 
-        images = load_images(image_path, size=512)
-        pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
-        output = inference(pairs, model, device, batch_size=batch_size)
-
-        scene = global_aligner(output, device=device, mode=GlobalAlignerMode.PointCloudOptimizer)
-        loss = scene.compute_global_alignment(init="mst", niter=niter, schedule=schedule, lr=lr)
-    
-    del model, output, images, pairs
-
-    return scene
-
 def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=None):
-    image_path = None
     if args_dict['own_data']:
         # read all the image paths from the images folder
-        image_path = [os.path.join(path, img) for img in os.listdir(path) if img.endswith(".png") or img.endswith(".jpg") or img.endswith(".jpeg") or img.endswith(".JPG")]
+        image_path = [os.path.join(path, img) for img in os.listdir(path) if img.endswith(".png") or img.endswith(".jpg") or img.endswith(".jpeg")]
         train_cam_infos, test_cam_infos, cam_infos, cam_infos_unsorted, cam_extrinsics, cam_intrinsics = None, None, None, None, None, None
     else:
         sfm_path = path.split("_dust3r")[0]
@@ -311,7 +287,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
 
         reading_dir = "images" if images == None else images
         cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(sfm_path, reading_dir))
-        cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : int(x.image_name))
+        cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
         if args_dict is not None and args_dict['few_shot'] != -1:
             indices = []
@@ -328,30 +304,30 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
         else:
             full_length = len(cam_infos)
             train_cam_infos = [cam_infos[i]  for i in range(full_length) if i % 2 == 0]
-            test_cam_infos = []
+            test_cam_infos = [cam_infos[i]  for i in range(full_length) if i % 2 == 1]
 
         
         with open(f'{log_dir}/cam_gt.pkl', 'wb') as f:
             pickle.dump([(c.R, c.T, c.FovY, c.FovX, c.width, c.height,c.image_name) for c in train_cam_infos], f)
     
-    # # Run dust3r
-    # ply_path = None
-    # if args_dict is not None:
-    #     model_path = "./duster/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-    #     device = 'cuda'
-    #     batch_size = 1
-    #     schedule = 'cosine'
-    #     lr = 0.01
-    #     niter = 300
-    #     model = load_model(model_path, device)
-    #     image_path = image_path if args_dict["own_data"] else [img_path.image_path for img_path in train_cam_infos] 
-    #     images = load_images(image_path, size=512)
-    #     pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
-    #     output = inference(pairs, model, device, batch_size=batch_size)
+    # Run dust3r
+    ply_path = None
+    if args_dict is not None:
+        model_path = "./duster/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+        device = 'cuda'
+        batch_size = 1
+        schedule = 'cosine'
+        lr = 0.01
+        niter = 300
+        model = load_model(model_path, device)
+        image_path = image_path if args_dict["own_data"] else [img_path.image_path for img_path in train_cam_infos] 
+        images = load_images(image_path, size=512)
+        pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
+        output = inference(pairs, model, device, batch_size=batch_size)
 
-    #     scene = global_aligner(output, device=device, mode=GlobalAlignerMode.PointCloudOptimizer)
-    #     loss = scene.compute_global_alignment(init="mst", niter=niter, schedule=schedule, lr=lr)
-            
+        scene = global_aligner(output, device=device, mode=GlobalAlignerMode.PointCloudOptimizer)
+        loss = scene.compute_global_alignment(init="mst", niter=niter, schedule=schedule, lr=lr)
+    
     def inv(mat):
         """ Invert a torch or numpy matrix
         """
@@ -361,20 +337,6 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
             return np.linalg.inv(mat)
         raise ValueError(f'bad matrix type = {type(mat)}')
     
-    # Run dust3r
-    scene = runDust3r(image_path, train_cam_infos, "cuda", args_dict)
-
-    if eval:
-        test_scene = runDust3r(image_path, test_cam_infos, "cuda", args_dict)
-
-        # Make test_cam_infos from dust3r
-        test_world2cam = inv(test_scene.get_im_poses().detach()).cpu().numpy()
-        test_focals = test_scene.get_focals().detach().cpu().numpy()
-        for idx in range(len(test_cam_infos)):
-            FovY = focal2fov(test_focals[idx], test_scene.imgs[idx].shape[0])
-            FovX = focal2fov(test_focals[idx], test_scene.imgs[idx].shape[1])
-            test_cam_infos[idx] = test_cam_infos[idx]._replace(R=test_world2cam[idx, :3, :3].transpose(), T=test_world2cam[idx, :3, 3], FovY=FovY, FovX=FovX)
-
     intrinsics = scene.get_intrinsics().detach().cpu().numpy()
     world2cam = inv(scene.get_im_poses().detach()).cpu().numpy()
     principal_points = scene.get_principal_points().detach().cpu().numpy()
@@ -409,7 +371,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
     # save_pointcloud(imgs, pts3d, masks, sparse_path)
     save_pointcloud_with_normals(imgs, pts3d, masks, sparse_path)
     
-    del scene, images, principal_points, focals, imgs, pts3d, masks, depth_maps, intrinsics, train_cam_infos, cam_infos, cam_infos_unsorted, cam_extrinsics, cam_intrinsics
+    del scene, model, output, images, pairs, principal_points, focals, imgs, pts3d, masks, depth_maps, intrinsics, train_cam_infos, cam_infos, cam_infos_unsorted, cam_extrinsics, cam_intrinsics
 
     # make empty points3D.txt file
     with open(sparse_path / 'points3D.txt', 'w') as f:
@@ -438,6 +400,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : int(x.image_name))
 
     train_cam_infos = cam_infos
+    test_cam_infos = test_cam_infos
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 

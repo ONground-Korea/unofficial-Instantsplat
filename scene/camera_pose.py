@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class CameraPoses(nn.Module):
     def __init__(self, poses,pose_rep="9D"):
@@ -10,8 +11,10 @@ class CameraPoses(nn.Module):
         if pose_rep=="9D":
             poses = [pred_camera_pose.world_view_transform.transpose(1,0) for pred_camera_pose in poses]
             self.w2c = torch.stack(poses, dim=0)
+            resi_pose = torch.tensor([0., 0., 0., 1., 0., 0., 0., 1., 0.]) + torch.randn(9)*1e-3
+            resi_pose = resi_pose.repeat(len(poses), 1)
+            self.resi_pose = nn.Parameter(resi_pose, requires_grad=True)
             self.d9 = self.pose_to_d9(self.w2c)
-            self.d9 = nn.Parameter(self.d9, requires_grad=True)
         
         elif pose_rep=='quaternion':
             self.R = np.array([pred_camera_pose.R.T for pred_camera_pose in poses])
@@ -39,7 +42,11 @@ class CameraPoses(nn.Module):
     
     def forward(self,i):
         if self.pose_rep=="9D":
-            return self.d9[i]
+            d9 = self.r6d2mat(self.d9[i].unsqueeze(dim=0)).squeeze(dim=0).transpose(1,0)
+            resi_pose = self.r6d2mat(self.resi_pose[i].unsqueeze(dim=0)).squeeze(dim=0).transpose(1,0)
+            pose_optim = torch.mm(resi_pose, d9).transpose(1,0)
+            return pose_optim
+            
         elif self.pose_rep=="quaternion":
             rot_matrix = self.quaternion_to_rotation_matrix_torch(self.q[i])
             return rot_matrix, self.t[i]
@@ -51,7 +58,11 @@ class CameraPoses(nn.Module):
 
     def get_all_poses(self):
         if self.pose_rep=="9D":
-            return self.d9
+            d9 = torch.stack([self.r6d2mat(self.d9[i].unsqueeze(dim=0)).squeeze(dim=0).transpose(1,0) for i in range(len(self.poses))])
+            resi_pose = torch.stack([self.r6d2mat(self.resi_pose[i].unsqueeze(dim=0)).squeeze(dim=0).transpose(1,0) for i in range(len(self.poses))])
+            pose_optim = self.pose_to_d9(torch.bmm(resi_pose, d9))
+            
+            return pose_optim
         elif self.pose_rep=="quaternion":
             rot_matrix = self.quaternion_to_rotation_matrix_torch(self.q)
             return rot_matrix, self.t
@@ -178,3 +189,31 @@ class CameraPoses(nn.Module):
         rot_matrix[..., 2, 2] = 1 - 2 * (x**2 + y**2)
 
         return rot_matrix
+    
+    def r6d2mat(self, d6: torch.Tensor) -> torch.Tensor:
+        """
+        Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+        using Gram--Schmidt orthogonalisation per Section B of [1].
+        Args:
+            d6: 6D rotation representation, of size (*, 6). Here corresponds to the two
+                first two rows of the rotation matrix. 
+        Returns:
+            batch of rotation matrices of size (*, 3, 3)
+        [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+        On the Continuity of Rotation Representations in Neural Networks.
+        IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+        Retrieved from http://arxiv.org/abs/1812.07035
+        """
+        t = d6[..., :3]
+        r = d6[..., 3:]
+        
+        a1, a2 = r[..., :3], r[..., 3:]
+        b1 = F.normalize(a1, dim=-1)
+        b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+        b2 = F.normalize(b2, dim=-1)
+        b3 = torch.cross(b1, b2, dim=-1)
+        R = torch.stack((b1, b2, b3), dim=-2)
+        mat = torch.cat((R,t[...,None]),-1)
+        dummy_tensor = torch.from_numpy(np.array([0,0,0,1])).to(mat.dtype).to(mat.device).unsqueeze(0).unsqueeze(0)
+        mat = torch.cat((mat, dummy_tensor), dim=1).squeeze().transpose(1,0)
+        return mat  # corresponds to row

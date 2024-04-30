@@ -150,6 +150,42 @@ class _RasterizeGaussians(torch.autograd.Function):
         else:
              grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations, grad_viewmatrix, grad_projmatrix = _C.rasterize_gaussians_backward(*args)
 
+        # viewmatrix = viewmatrix.transpose(1,0)
+        # grad_viewmatrix = torch.zeros_like(viewmatrix)
+        # R = viewmatrix[..., :3, :3]
+
+        # # Denote ProjectGaussians for a single Gaussian (mean3d, q, s)
+        # # viemwat = [R, t] as:
+        # #
+        # #   f(mean3d, q, s, R, t, intrinsics)
+        # #       = g(R @ mean3d + t,
+        # #           R @ cov3d_world(q, s) @ R^T ))
+        # #
+        # # Then, the Jacobian w.r.t., t is:
+        # #
+        # #   d f / d t = df / d mean3d @ R^T
+        # #
+        # # and, in the context of fine tuning camera poses, it is reasonable
+        # # to assume that
+        # #
+        # #   d f / d R_ij =~ \sum_l d f / d t_l * d (R @ mean3d)_l / d R_ij
+        # #                = d f / d_t_i * mean3d[j]
+        # #
+        # # Gradients for R and t can then be obtained by summing over
+        # # all the Gaussians.
+        # grad_mean3d_cam = torch.matmul(grad_means3D, R.transpose(-1, -2))
+
+        # # gradient w.r.t. view matrix translation
+        # grad_viewmatrix[..., :3, 3] = grad_mean3d_cam.sum(-2)
+
+        # # gradent w.r.t. view matrix rotation
+        # for j in range(3):
+        #     for l in range(3):
+        #         grad_viewmatrix[..., j, l] = torch.dot(grad_mean3d_cam[..., j], means3D[..., l])
+                
+        # grad_viewmatrix = grad_viewmatrix.transpose(1,0)
+        # grad_projmatrix = torch.zeros_like(projmatrix)
+
         grads = (
             grad_means3D,
             grad_means2D,

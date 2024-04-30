@@ -1,0 +1,4 @@
+python train.py -s /home/cvlab02/project/sdc/mipnerf360_dataset/bonsai --images images_2 --exp_name bonsai --eval --pose_representation "9D" --DSV --few_shot 24 --white_bg
+python train.py -s /home/cvlab02/project/sdc/mipnerf360_dataset/counter --images images_2 --exp_name counter --eval --pose_representation "9D" --DSV --few_shot 24 --white_bg
+python train.py -s /home/cvlab02/project/sdc/mipnerf360_dataset/room --images images_2 --exp_name room --eval --pose_representation "9D" --DSV --few_shot 24 --white_bg
+python train.py -s /home/cvlab02/project/sdc/mipnerf360_dataset/kitchen --images images_2 --exp_name kitchen --eval --pose_representation "9D" --DSV --few_shot 24 --white_bg

@@ -32,6 +32,7 @@ import random
 import cv2
 import torchvision
 import torch.nn as nn
+from utils.schedular import ExponentialDecayScheduler
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -58,7 +59,8 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
     gaussians.training_setup(opt) # opt contains densify from iter and densify until iter
     pose_network = CameraPoses(scene.getTrainCameras(), args_dict['pose_representation']).cuda()
 
-    camera_pose_optimizer = torch.optim.AdamW(pose_network.parameters(), lr=5e-5, betas=(0.9, 0.999))
+    camera_pose_optimizer = torch.optim.AdamW(pose_network.parameters(), lr=1e-5, betas=(0.9, 0.999))
+    camera_pose_scheduler = ExponentialDecayScheduler(0, 1000, 5e-7).get_scheduler(camera_pose_optimizer, 1e-5)
     # camera_pose_optimizer = torch.optim.SGD(pose_network.parameters(), lr=5e-6, momentum=0.9, weight_decay=1e-4)
     # camera_pose_scheduler = torch.optim.lr_scheduler.ExponentialLR(camera_pose_optimizer, gamma=0.97)
 
@@ -99,13 +101,13 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
 
         gaussians.update_learning_rate(iteration)
 
-        if args_dict['DSV']:
-            if iteration % 100 == 0:
-                gaussians.oneupSHdegree()
-        elif args_dict['ours']:
-            if iteration >= 5000:
-                if iteration % 1000 == 0:
-                    gaussians.oneupSHdegree()
+        # if args_dict['DSV']:
+        #     if iteration % 100 == 0:
+        #         gaussians.oneupSHdegree()
+        # elif args_dict['ours']:
+        #     if iteration >= 5000:
+        #         if iteration % 1000 == 0:
+        #             gaussians.oneupSHdegree()
         
         if iteration % len(random_index) == 0:
             random_index = torch.randperm(len(pose_network))
@@ -132,9 +134,10 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
         original_campose = torch.eye(4, device="cuda")
         original_campose[:3,:3] = torch.tensor(viewpoint_cam.R.T, device="cuda")
         original_campose[:3,3] = torch.tensor(viewpoint_cam.T, device="cuda")
-        pose_reg = l1_loss(r6d2mat(camera_pose.unsqueeze(0)).T, original_campose)
+        pose_reg = l1_loss(camera_pose.T, original_campose)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + 0.1 * pose_reg
         loss.backward()
+        
 
         iter_end.record()
 
@@ -154,7 +157,7 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
                 pose_network.normalize_quat()
             camera_pose_optimizer.zero_grad(set_to_none = True)
             gaussians.optimizer.zero_grad(set_to_none = True)
-
+            camera_pose_scheduler.step()
             # # Learning rate scheduler
             # if iteration % 1000 == 0:
             #     camera_pose_scheduler.step()
@@ -202,7 +205,7 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-
+                
     # Save video 
     # Slerp interpolation
     from scipy.spatial.transform import Rotation as R
@@ -235,7 +238,15 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
     video_imgs = []
     for i in range(num_frames):
         # [T, H, W, C]
-        video_imgs.append(torch.clamp(render(viewpoint_stack[0], scene.gaussians, pipe, background, camera_pose = interpolated_poses[i], render_only=False, pose_rep="matrix")["render"], 0.0, 1.0).detach().cpu().permute(1,2,0))
+        video_img = torch.clamp(render(viewpoint_stack[0], scene.gaussians, pipe, background, camera_pose = interpolated_poses[i], render_only=False, pose_rep="matrix")["render"], 0.0, 1.0).detach().cpu().permute(1,2,0)
+        # if width or height is odd, resize to even
+        if video_img.shape[0] % 2 != 0:
+            video_img = video_img[:-1]
+        if video_img.shape[1] % 2 != 0:
+            video_img = video_img[:,:-1]
+        video_imgs.append(video_img)
+        # video_imgs.append(torch.clamp(render(viewpoint_stack[0], scene.gaussians, pipe, background, camera_pose = interpolated_poses[i], render_only=False, pose_rep="matrix")["render"], 0.0, 1.0).detach().cpu().permute(1,2,0))
+    
     imgs_imgs = torch.stack(video_imgs)
     video_imgs = imgs_imgs * 255.0
     # torchvision.utils.save_image(imgs_imgs[0].permute(2,0,1), f'{args.output_path}/{args.exp_name}/interpolate_start.jpg')
@@ -243,7 +254,7 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
     # torchvision.utils.save_image(imgs_imgs[100].permute(2,0,1), f'{args.output_path}/{args.exp_name}/interpolate_middle2.jpg')
     # torchvision.utils.save_image(imgs_imgs[150].permute(2,0,1), f'{args.output_path}/{args.exp_name}/interpolate_middle3.jpg')
     # torchvision.utils.save_image(imgs_imgs[-1].permute(2,0,1), f'{args.output_path}/{args.exp_name}/interpolate_end.jpg')
-    torchvision.io.write_video(f'{args.output_path}/{args.exp_name}/video.mp4', video_imgs, 30.0)
+    torchvision.io.write_video(f'{args.output_path}/{args.exp_name}/video.mp4', video_imgs, int(30.0 / (len(key_times)/12)))
 
 def prepare_output_and_logger(args, output_path, exp_name, project_name):
     if (not args.model_path) and (not exp_name):
@@ -353,8 +364,9 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                         image = torch.clamp(renderFunc(viewpoint, scene.gaussians, camera_pose = trained_pose,render_only=False, pose_rep=args_dict['pose_representation'], *renderArgs)["render"], 0.0, 1.0)
                     elif pose_network is not None and config['name'] == 'test':
                         test_pose = viewpoint.world_view_transform
-                        refine_test_pose = refine_pose(test_pose, sim3, scene, renderArgs)
-                        image = torch.clamp(renderFunc(viewpoint, scene.gaussians, camera_pose = refine_test_pose,render_only=False, pose_rep=args_dict['pose_representation'], *renderArgs)["render"], 0.0, 1.0)
+                        gt_image = viewpoint.original_image.to("cuda")
+                        refine_test_pose = refine_pose(test_pose, sim3, scene,gt_image,idx, renderArgs)
+                        image = torch.clamp(renderFunc( scene.getTrainCameras()[0], scene.gaussians, camera_pose = refine_test_pose,render_only=False, pose_rep=args_dict['pose_representation'], *renderArgs)["render"], 0.0, 1.0)
                     else:
                         image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
@@ -365,9 +377,12 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
                     # save image
+                    # cv2.imwrite(f'{args.output_path}/{args.exp_name}/{viewpoint.image_name}.png', (image.cpu().numpy()*255).astype(np.uint8).transpose(1,2,0))
+                    # cv2.imwrite(f'{args.output_path}/{args.exp_name}/{viewpoint.image_name}_gt.png', (gt_image.cpu().numpy()*255).astype(np.uint8).transpose(1,2,0))
+                    
                     torchvision.utils.save_image(image, f'{args.output_path}/{args.exp_name}/{viewpoint.image_name}.png')
                     torchvision.utils.save_image(gt_image, f'{args.output_path}/{args.exp_name}/{viewpoint.image_name}_gt.png')
-                    # error map
+                    ## error map
                     error_map = torch.abs(image - gt_image)
                     torchvision.utils.save_image(error_map, f'{args.output_path}/{args.exp_name}/{viewpoint.image_name}_error_map.png')
 
@@ -386,7 +401,21 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
         
-def refine_pose(test_pose, sim3, scene, renderArgs):
+class TestCameraPose(nn.Module):
+    def __init__(self, test_pose):
+        super(TestCameraPose, self).__init__()
+        self.test_pose = test_pose
+        eye_pose = torch.tensor([0., 0., 0., 1., 0., 0., 0., 1., 0.]).to(test_pose.device) + torch.randn(9).to(test_pose.device)*1e-3
+        self.resi_pose = nn.Parameter(eye_pose, requires_grad=True)
+        
+    def forward(self):
+        resi_pose_optim = r6d2mat(self.resi_pose.unsqueeze(dim=0)).squeeze(dim=0).transpose(1,0)
+    
+        test_pose_tmp = resi_pose_optim @ self.test_pose
+        test_pose_tmp = test_pose_tmp.transpose(1,0)
+        return test_pose_tmp
+        
+def refine_pose(test_pose, sim3, scene, gt_image, idx,renderArgs):
     test_pose = test_pose.clone().transpose(1,0)
     sim3 = edict({k:v.cuda() for k,v in sim3.items()})
     
@@ -396,36 +425,32 @@ def refine_pose(test_pose, sim3, scene, renderArgs):
     R_aligned = test_pose_barf[...,:3]@sim3.R
     t_aligned = (-R_aligned@center_aligned[...,None])[...,0]
     
+    
     test_pose = torch.eye(4,4,device=test_pose.device)
     test_pose[:3,:3] = R_aligned
     test_pose[:3,3] = t_aligned
     
-    resi_pose = torch.tensor([0., 0., 0., 1., 0., 0., 0., 1., 0.]).to(test_pose.device) + torch.randn(9).to(test_pose.device)*1e-3
-    resi_pose = nn.Parameter(resi_pose, requires_grad=True)
-    resi_pose = r6d2mat(resi_pose.unsqueeze(dim=0)).squeeze(dim=0).transpose(1,0)
-    
-    test_pose = resi_pose @ test_pose
+    test_camera_posenet = TestCameraPose(test_pose)
+    test_pose_optimizer = torch.optim.AdamW(test_camera_posenet.parameters(), lr=1e-4, betas=(0.9, 0.999))
+    camera_pose_scheduler = ExponentialDecayScheduler(0, 1000, 5e-7).get_scheduler(test_pose_optimizer, 1e-4)
     ## refine test_pose with render
-    test_pose = pose_to_d9(test_pose.unsqueeze(dim=0)).squeeze(dim=0)
-    test_pose = nn.Parameter(test_pose, requires_grad=True)
     
-    test_pose_optim = torch.optim.AdamW([test_pose], lr=1e-3, betas=(0.9, 0.999))
     iterator = tqdm(range(1000))
-    curr_pos = test_pose.clone()
     
     for it in iterator:
-        test_pose_optim.zero_grad()
-        test_image = render(scene.getTestCameras()[0], scene.gaussians, camera_pose = test_pose,render_only=False, pose_rep='9D', *renderArgs)["render"]
-        gt_image = scene.getTestCameras()[0].original_image.to("cuda")
-        Ll1 = l1_loss(test_image, gt_image)
-        # if it%25==0:
-        #     print(f"iter {it} : L1 loss : {Ll1}")
-        loss = (1.0) * Ll1
-        loss.backward()
-        test_pose_optim.step()
-        iterator.set_description(f"Refining pose : L1 loss {Ll1}")
+        test_pose_optimizer.zero_grad()
         
-    
+        test_pose_tmp = test_camera_posenet()
+        test_image = render(scene.getTrainCameras()[0], scene.gaussians, camera_pose = test_pose_tmp,render_only=False, pose_rep='9D', *renderArgs)["render"]
+        Ll1 = l1_loss(test_image, gt_image)
+        loss = (1.0 -0.2) * Ll1 + 0.2 * (1.0 - ssim(test_image, gt_image))
+        if it%10==0:
+            iterator.set_postfix({"Loss": f"{loss.item():.{7}f}"})
+        loss.backward()
+        test_pose_optimizer.step()
+        camera_pose_scheduler.step()
+        
+    test_pose = test_camera_posenet().clone().detach()
     return test_pose
 
 def pose_to_d9(pose: torch.Tensor) -> torch.Tensor:
