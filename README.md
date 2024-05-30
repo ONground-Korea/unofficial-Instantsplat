@@ -6,7 +6,11 @@ Abstract: *Radiance Field methods have recently revolutionized novel-view synthe
 
 ## Environment
 ```bash
-docker pull ongroundjisang/instantsplat
+docker pull gaetanlandreau/3d-gaussian-splatting
+```
+Then follow Dust3r environment settings from the [official repository](https://github.com/naver/dust3r) on the top of the docker environment.
+```bash
+pip install -r requirements.txt
 ```
 
 ## Training 
@@ -34,3 +38,29 @@ python train.py  -s {YOUR_DATASET_PATH}  --exp_name {EXP_NAME}  --eval  --pose_r
   </div>
 </section>
 
+```bibtex
+@inproceedings{dust3r_cvpr24,
+      title={DUSt3R: Geometric 3D Vision Made Easy}, 
+      author={Shuzhe Wang and Vincent Leroy and Yohann Cabon and Boris Chidlovskii and Jerome Revaud},
+      booktitle = {CVPR},
+      year = {2024}
+}
+
+@misc{dust3r_arxiv23,
+      title={DUSt3R: Geometric 3D Vision Made Easy}, 
+      author={Shuzhe Wang and Vincent Leroy and Yohann Cabon and Boris Chidlovskii and Jerome Revaud},
+      year={2023},
+      eprint={2312.14132},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
+
+@misc{fan2024instantsplat,
+        title={InstantSplat: Unbounded Sparse-view Pose-free Gaussian Splatting in 40 Seconds}, 
+        author={Zhiwen Fan and Wenyan Cong and Kairun Wen and Kevin Wang and Jian Zhang and Xinghao Ding and Danfei Xu and Boris Ivanovic and Marco Pavone and Georgios Pavlakos and Zhangyang Wang and Yue Wang},
+        year={2024},
+        eprint={2403.20309},
+        archivePrefix={arXiv},
+        primaryClass={cs.CV}
+      }
+```
