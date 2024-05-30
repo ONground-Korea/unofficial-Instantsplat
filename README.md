@@ -15,11 +15,11 @@ pip install -r requirements.txt
 
 ## Training 
 ```bash
-python train.py  -s {YOUR_DATASET_PATH}  --exp_name {EXP_NAME}  --eval  --pose_representation '9D' --DSV --few_shot 12 --white_bg --iterations 1000
+python train.py  -s {YOUR_DATASET_PATH} --exp_name {EXP_NAME} --eval --few_shot 12 --white_bg --iterations 1000
 ```
 In case of training with your own dataset, you need to add `--own_data` flag to the command.
 ```bash
-python train.py  -s {YOUR_DATASET_PATH}  --exp_name {EXP_NAME}  --eval  --pose_representation '9D' --DSV --white_bg --iterations 1000 --own_data
+python train.py  -s {YOUR_DATASET_PATH} --exp_name {EXP_NAME} --white_bg --iterations 1000 --own_data
 ```
 
 <section class="section" id="BibTeX">
