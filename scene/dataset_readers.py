@@ -296,7 +296,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
             index = np.linspace(0, dataset_length-1, num_samples, dtype=int)
             cam_infos = [cam_infos[i] for i in index]
             print(f"Training with few-shot! The selected views are: {index}")
-
+        
         if eval:
             full_length = len(cam_infos)
             train_cam_infos = [cam_infos[i]  for i in range(full_length) if i % 2 == 0]
@@ -304,16 +304,15 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
         else:
             full_length = len(cam_infos)
             train_cam_infos = [cam_infos[i]  for i in range(full_length) if i % 2 == 0]
-            test_cam_infos = [cam_infos[i]  for i in range(full_length) if i % 2 == 1]
+            test_cam_infos = []
 
-        
         with open(f'{log_dir}/cam_gt.pkl', 'wb') as f:
             pickle.dump([(c.R, c.T, c.FovY, c.FovX, c.width, c.height,c.image_name) for c in train_cam_infos], f)
     
     # Run dust3r
     ply_path = None
     if args_dict is not None:
-        model_path = "./duster/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+        model_path = args_dict['dust3r_path']
         device = 'cuda'
         batch_size = 1
         schedule = 'cosine'
@@ -348,7 +347,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
     pts3d = [i.detach() for i in scene.get_pts3d()]
     depth_maps = [i.detach() for i in scene.get_depthmaps()]
 
-    min_conf_thr = 0  # instant splat does not use this maybe... (horse with thr 20 = PSNR 23.5, with thr 0 = PSNR 25.3)
+    min_conf_thr = 0 
     scene.min_conf_thr = float(scene.conf_trf(torch.tensor(min_conf_thr)))
     masks = to_numpy(scene.get_masks())
     
@@ -400,7 +399,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, args_dict=None, log_dir=
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : int(x.image_name))
 
     train_cam_infos = cam_infos
-    test_cam_infos = test_cam_infos
+    test_cam_infos = [] if args_dict["own_data"] else test_cam_infos
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
