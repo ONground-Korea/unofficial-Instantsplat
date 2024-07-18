@@ -71,4 +71,12 @@ python train.py  -s {YOUR_DATASET_PATH} --exp_name {EXP_NAME} --white_bg --itera
         archivePrefix={arXiv},
         primaryClass={cs.CV}
       }
+
+@misc{wild_gaussian_splatting_2024,
+  title={Wild Gaussian Splatting},
+  author={Daniel Kovalenko},
+  year={2024},
+  publisher={GitHub},
+  howpublished={\url{https://github.com/nerlfield/wild-gaussian-splatting}}
+}
 ```
