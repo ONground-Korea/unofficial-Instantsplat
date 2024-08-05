@@ -29,6 +29,7 @@ from easydict import EasyDict as edict
 import torchvision
 import torch.nn as nn
 from utils.schedular import ExponentialDecayScheduler
+import imageio
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -190,7 +191,11 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
     
     # Rendering and saving video
     torch.cuda.empty_cache()
-    video_imgs = []
+    
+    # if path exists
+    if not os.path.exists(f'{args.output_path}/{args.exp_name}/interp_images'):
+        os.makedirs(f'{args.output_path}/{args.exp_name}/interp_images')
+        
     for i in range(num_frames):
         # [T, H, W, C]
         video_img = torch.clamp(render(viewpoint_stack[0], scene.gaussians, pipe, background, camera_pose = interpolated_poses[i], render_only=False, pose_rep="matrix")["render"], 0.0, 1.0).detach().cpu().permute(1,2,0)
@@ -199,12 +204,12 @@ def training(dataset, opt, pipe, testing_iterations ,saving_iterations, checkpoi
             video_img = video_img[:-1]
         if video_img.shape[1] % 2 != 0:
             video_img = video_img[:,:-1]
-        video_imgs.append(video_img)
-        # video_imgs.append(torch.clamp(render(viewpoint_stack[0], scene.gaussians, pipe, background, camera_pose = interpolated_poses[i], render_only=False, pose_rep="matrix")["render"], 0.0, 1.0).detach().cpu().permute(1,2,0))
-    
-    imgs_imgs = torch.stack(video_imgs)
-    video_imgs = imgs_imgs * 255.0
-    torchvision.io.write_video(f'{args.output_path}/{args.exp_name}/video.mp4', video_imgs, int(30.0 / (len(key_times)/6)))
+        
+        torchvision.utils.save_image(video_img.permute(2,0,1), f'{args.output_path}/{args.exp_name}/interp_images/video_{i}.png')
+
+    video_imgs = [imageio.imread(f'{args.output_path}/{args.exp_name}/interp_images/video_{i}.png') for i in range(num_frames)]
+    imageio.mimwrite(f'{args.output_path}/{args.exp_name}/{args.exp_name}.mp4', video_imgs, fps=30)
+
 
 def prepare_output_and_logger(args, output_path, exp_name, project_name):
     if (not args.model_path) and (not exp_name):
@@ -228,7 +233,7 @@ def prepare_output_and_logger(args, output_path, exp_name, project_name):
     # Create Tensorboard writer
     tb_writer = None
     # Prepare Wandb
-    wandb.init(project=project_name, name=exp_name, dir=args.model_path, config=args, sync_tensorboard=True)
+    # wandb.init(project=project_name, name=exp_name, dir=args.model_path, config=args, sync_tensorboard=True)
     if TENSORBOARD_FOUND:
         tb_writer = SummaryWriter(args.model_path)
         print("Logging progress to Tensorboard at {}".format(args.model_path))
