@@ -22,13 +22,36 @@ pip install -r requirements.txt
 ```
 
 ## Training 
+
+### :blush: All you need are images and one line of execution command.
+
 ```bash
 python train.py  -s {YOUR_DATASET_PATH} --exp_name {EXP_NAME} --eval --few_shot 12 --white_bg --iterations 1000
 ```
+
+### Own dataset
+
 In case of training with your own dataset, you need to add `--own_data` flag to the command.
 ```bash
 python train.py  -s {YOUR_DATASET_PATH} --exp_name {EXP_NAME} --white_bg --iterations 1000 --own_data
 ```
+
+### Q&A
+
+- For the `-s {YOUR_DATASET_PATH}` flag, you need a folder containing only jpg, jpeg, or png image files. For example, a folder containing assets/example/*.jpg would become the custom dataset structure.  
+  ```
+  assets
+  └── example
+      ├── 1.jpg
+      ├── 2.jpg
+      ├── 3.jpg
+      └── 4.jpg
+  ```
+  In this case, the command would be `python train.py  -s assets/example --exp_name {EXP_NAME} --white_bg --iterations 1000 --own_data`
+
+- For the dust3r checkpoint, you can download the checkpoint from the [official repository](https://github.com/naver/dust3r) and add the `--dust3r_checkpoint {DUST3R_CHECKPOINT_PATH.pth}` flag to the command. Default path for the checkpoint is `./duster/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth`.
+
+- For the `--white_bg` flag, if you want the background to be black, you can remove the flag.
 
 <section class="section" id="BibTeX">
   <div class="container is-max-desktop content">
